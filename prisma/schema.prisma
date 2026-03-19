@@ -1,4 +1,3 @@
-// schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,12 +11,16 @@ enum MeetingStatus {
   scheduled
   live
   ended
+
+  @@map("meeting_status_enum")
 }
 
 enum ParticipantRole {
   host
   co_host
   participant
+
+  @@map("participant_role_enum")
 }
 
 enum ConnectionQuality {
@@ -25,26 +28,33 @@ enum ConnectionQuality {
   good
   poor
   disconnected
+
+  @@map("connection_quality_enum")
 }
 
 enum UserRole {
   admin
   member
+
+  @@map("user_role_enum")
 }
 
 enum AuthProvider {
   email
   google
   github
+
+  @@map("auth_provider_enum")
 }
 
 model Organization {
-  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name         String
-  billing_tier String?       @default("free")
-  created_at   DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
-  deleted_at   DateTime?     @db.Timestamptz(6)
+  billing_tier String?   @default("free")
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at   DateTime? @db.Timestamptz(6)
+
   Users        User[]
   Meetings     Meeting[]
   MeetingRooms MeetingRoom[]
@@ -53,24 +63,28 @@ model Organization {
 }
 
 model User {
-  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  org_id           String?              @db.Uuid
-  email            String               @unique
-  password_hash    String?
-  auth_provider    AuthProvider?        @default(email)
-  is_verified      Boolean?             @default(false)
-  role             UserRole?            @default(member)
-  created_at       DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime             @default(now()) @updatedAt @db.Timestamptz(6)
-  deleted_at       DateTime?            @db.Timestamptz(6)
-  Organization     Organization?        @relation(fields: [org_id], references: [id])
-  HostedMeetings   Meeting[]            @relation("HostMeetings")
-  MeetingRooms     MeetingRoom[]
-  Participants     MeetingParticipant[]
-  SentMessages     ChatMessage[]
-  SentDirects      DirectMessage[]      @relation("SentDirects")
-  ReceivedDirects  DirectMessage[]      @relation("ReceivedDirects")
-  Sessions         Session[]
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id          String?          @db.Uuid
+  email           String           @unique
+  password_hash   String?
+  auth_provider   AuthProvider?    @default(email)
+  is_verified     Boolean?         @default(false)
+  role            UserRole?        @default(member)
+  created_at      DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime?        @db.Timestamptz(6)
+
+  Organization    Organization?    @relation(fields: [org_id], references: [id])
+  HostedMeetings  Meeting[]        @relation("HostMeetings")
+  MeetingRooms    MeetingRoom[]
+  Participants    MeetingParticipant[]
+  SentMessages    ChatMessage[]
+  SentDirects     DirectMessage[]   @relation("SentDirects")
+  ReceivedDirects DirectMessage[]   @relation("ReceivedDirects")
+  Sessions        Session[]
+  Profiles        UserProfile[]
+  AuditLogs       AuditLog[]
+  RateLimits      RateLimit[]
 
   @@map("users")
 }
@@ -85,6 +99,7 @@ model MeetingRoom {
   created_at    DateTime     @default(now()) @db.Timestamptz(6)
   updated_at    DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
   deleted_at    DateTime?    @db.Timestamptz(6)
+
   Organization  Organization @relation(fields: [org_id], references: [id])
   Owner         User         @relation(fields: [owner_id], references: [id])
   Meetings      Meeting[]
@@ -93,23 +108,24 @@ model MeetingRoom {
 }
 
 model Meeting {
-  id                   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  org_id               String               @db.Uuid
-  room_id              String?              @db.Uuid
-  host_id              String               @db.Uuid
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id               String             @db.Uuid
+  room_id              String?            @db.Uuid
+  host_id              String             @db.Uuid
   title                String
-  type                 String               
-  status               MeetingStatus        @default(scheduled)
-  start_time           DateTime             @db.Timestamptz(6)
-  end_time             DateTime?            @db.Timestamptz(6)
-  max_participants     Int?                 @default(100)
-  is_recording_enabled Boolean?             @default(false)
-  join_token           String               @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  created_at           DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime             @default(now()) @updatedAt @db.Timestamptz(6)
-  Organization         Organization         @relation(fields: [org_id], references: [id])
-  Room                 MeetingRoom?         @relation(fields: [room_id], references: [id])
-  Host                 User                 @relation("HostMeetings", fields: [host_id], references: [id])
+  type                 String
+  status               MeetingStatus      @default(scheduled)
+  start_time           DateTime           @db.Timestamptz(6)
+  end_time             DateTime?          @db.Timestamptz(6)
+  max_participants     Int?               @default(100)
+  is_recording_enabled Boolean?           @default(false)
+  join_token           String             @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  created_at           DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
+
+  Organization         Organization       @relation(fields: [org_id], references: [id])
+  Room                 MeetingRoom?       @relation(fields: [room_id], references: [id])
+  Host                 User               @relation("HostMeetings", fields: [host_id], references: [id])
   Participants         MeetingParticipant[]
   ChatMessages         ChatMessage[]
   Recordings           MeetingRecording[]
@@ -130,6 +146,7 @@ model MeetingParticipant {
   device_type        String?
   join_time          DateTime           @default(now()) @db.Timestamptz(6)
   leave_time         DateTime?          @db.Timestamptz(6)
+
   Meeting            Meeting            @relation(fields: [meeting_id], references: [id])
   User               User?              @relation(fields: [user_id], references: [id])
 
@@ -145,6 +162,7 @@ model ChatMessage {
   is_deleted Boolean? @default(false)
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
   Meeting    Meeting  @relation(fields: [meeting_id], references: [id])
   Sender     User?    @relation(fields: [sender_id], references: [id])
 
@@ -160,6 +178,7 @@ model DirectMessage {
   is_deleted  Boolean? @default(false)
   created_at  DateTime @default(now()) @db.Timestamptz(6)
   updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
   Sender      User     @relation("SentDirects", fields: [sender_id], references: [id])
   Receiver    User     @relation("ReceivedDirects", fields: [receiver_id], references: [id])
 
@@ -175,6 +194,7 @@ model MeetingRecording {
   checksum         String?
   duration_seconds Int?
   created_at       DateTime @default(now()) @db.Timestamptz(6)
+
   Meeting          Meeting  @relation(fields: [meeting_id], references: [id])
 
   @@map("meeting_recordings")
@@ -186,6 +206,7 @@ model MeetingStat {
   total_messages         Int?      @default(0)
   total_duration_seconds Int?      @default(0)
   updated_at             DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+
   Meeting                Meeting   @relation(fields: [meeting_id], references: [id])
 
   @@map("meeting_stats")
@@ -200,7 +221,55 @@ model Session {
   refresh_token_hash String
   expires_at         DateTime @db.Timestamptz(6)
   created_at         DateTime @default(now()) @db.Timestamptz(6)
+
   User               User     @relation(fields: [user_id], references: [id])
 
   @@map("sessions")
+}
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String?  @db.Uuid
+  action     String
+  metadata   Json?    @db.JsonB
+  ip_address String?  @db.Inet
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("audit_logs")
+}
+
+model MeetingEvent {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  meeting_id     String   @db.Uuid
+  participant_id String   @db.Uuid
+  event_type     String
+  payload        Json?    @db.JsonB
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("meeting_events")
+}
+
+model RateLimit {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String?  @db.Uuid
+  ip_address String   @db.Inet
+  action     String
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  User       User?    @relation(fields: [user_id], references: [id])
+
+  @@map("rate_limits")
+}
+
+model UserProfile {
+  user_id      String   @id @db.Uuid
+  display_name String
+  avatar_url   String?
+  timezone     String?  @default("UTC")
+  preferences  Json?    @db.JsonB
+  updated_at   DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  User         User     @relation(fields: [user_id], references: [id])
+
+  @@map("user_profiles")
 }
