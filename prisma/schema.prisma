@@ -44,7 +44,7 @@ enum AuthProvider {
   google
   github
 
-  @@map("auth_provider_enum")
+  
 }
 
 model Organization {
