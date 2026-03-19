@@ -12,7 +12,7 @@ import Redis from 'ioredis';
 import pino from 'pino';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
-
+import cookie from '@fastify/cookie';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -32,10 +32,16 @@ const stateClient = pubClient.duplicate(); // For pure state K/V operations
 
 const fastify = Fastify({ logger: false }); // Using custom pino instance manually where needed
 
+fastify.register(cookie, {
+  secret: 'some-secret', // optional
+});
 // ==========================================
 // 2. MIDDLEWARES & PLUGINS
 // ==========================================
-fastify.register(cors, { origin: '*' }); // Configure properly for production
+fastify.register(cors, {
+  origin: "https://meeting-hub--nikunjagarwal9.replit.app/dashboard", // NOT *
+  credentials: true
+});
 fastify.register(helmet);
 fastify.register(jwt, { secret: process.env.JWT_SECRET || 'super-secret-fallback-do-not-use' });
 fastify.register(rateLimit, { max: 100, timeWindow: '1 minute' });
@@ -59,14 +65,28 @@ const io = new SocketIOServer(fastify.server, {
 });
 
 io.use(async (socket, next) => {
-  const token = socket.handshake.auth.token;
-  if (!token) return next(new Error('Authentication error'));
   try {
+    const cookie = socket.handshake.headers.cookie;
+
+    if (!cookie) {
+      return next(new Error("No cookie"));
+    }
+
+    const token = cookie
+      .split("; ")
+      .find(row => row.startsWith("token="))
+      ?.split("=")[1];
+
+    if (!token) {
+      return next(new Error("No token"));
+    }
+
     const decoded = fastify.jwt.verify<{ id: string }>(token);
     socket.data.userId = decoded.id;
-    next();
+
+    next(); // ✅ VERY IMPORTANT
   } catch (err) {
-    next(new Error('Authentication error'));
+    next(new Error("Authentication error"));
   }
 });
 
@@ -183,11 +203,16 @@ fastify.post('/auth/register', async (request, reply) => {
   // 🔥 STEP 5: Generate JWT
   const token = fastify.jwt.sign({ id: user.id });
 
-  return {
-    token,
+  reply
+  .setCookie("token", token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    path: "/"
+  })
+  .send({
     user: { id: user.id, email: user.email }
-  };
-});
+  });
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string() });
 fastify.post('/auth/login', async (request, reply) => {
@@ -198,7 +223,16 @@ fastify.post('/auth/login', async (request, reply) => {
     return reply.code(401).send({ error: 'Invalid credentials' });
   }
   const token = fastify.jwt.sign({ id: user.id });
-  return { token, user: { id: user.id, email: user.email } };
+  reply
+  .setCookie("token", token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    path: "/"
+  })
+  .send({
+    user: { id: user.id, email: user.email }
+  });
 });
 
 // --- Meeting Routes ---
