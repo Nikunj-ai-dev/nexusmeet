@@ -168,21 +168,16 @@ const registerSchema = z.object({ email: z.string().email(), password: z.string(
 fastify.post('/auth/register', async (request, reply) => {
   const { email, password, org_id } = registerSchema.parse(request.body);
 
-  // 🔥 STEP 1: Check if user already exists
   const existingUser = await prisma.user.findUnique({
     where: { email }
   });
 
   if (existingUser) {
-    return reply.status(400).send({
-      error: "Email already registered"
-    });
+    return reply.status(400).send({ error: "Email already registered" });
   }
 
-  // 🔥 STEP 2: Hash password
   const password_hash = await bcrypt.hash(password, 10);
 
-  // 🔥 STEP 3: Create org if not provided
   let finalOrgId = org_id;
   if (!finalOrgId) {
     const org = await prisma.organization.create({
@@ -191,7 +186,6 @@ fastify.post('/auth/register', async (request, reply) => {
     finalOrgId = org.id;
   }
 
-  // 🔥 STEP 4: Create user
   const user = await prisma.user.create({
     data: {
       email,
@@ -200,41 +194,46 @@ fastify.post('/auth/register', async (request, reply) => {
     }
   });
 
-  // 🔥 STEP 5: Generate JWT
   const token = fastify.jwt.sign({ id: user.id });
 
-  reply
-  .setCookie("token", token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "none",
-    path: "/"
-  })
-  .send({
-    user: { id: user.id, email: user.email }
-  });
+  return reply
+    .setCookie("token", token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      path: "/"
+    })
+    .send({
+      user: { id: user.id, email: user.email }
+    });
+});
+
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string() });
 fastify.post('/auth/login', async (request, reply) => {
   const { email, password } = loginSchema.parse(request.body);
-  const user = await prisma.user.findUnique({ where: { email } });
-  
+
+  const user = await prisma.user.findUnique({
+    where: { email }
+  });
+
   if (!user || !user.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
     return reply.code(401).send({ error: 'Invalid credentials' });
   }
-  const token = fastify.jwt.sign({ id: user.id });
-  reply
-  .setCookie("token", token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "none",
-    path: "/"
-  })
-  .send({
-    user: { id: user.id, email: user.email }
-  });
-});
 
+  const token = fastify.jwt.sign({ id: user.id });
+
+  return reply
+    .setCookie("token", token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      path: "/"
+    })
+    .send({
+      user: { id: user.id, email: user.email }
+    });
+});
 // --- Meeting Routes ---
 const createMeetingSchema = z.object({ title: z.string(), type: z.string(), start_time: z.string().datetime(), max_participants: z.number().optional() });
 fastify.post('/meetings', { preValidation: [fastify.authenticate] }, async (request, reply) => {
