@@ -12,7 +12,13 @@ import Redis from 'ioredis';
 import pino from 'pino';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
+import { FastifyRequest, FastifyReply } from 'fastify';
 
+declare module 'fastify' {
+  interface FastifyInstance {
+    authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+  }
+}
 // ==========================================
 // 1. INITIALIZATION & CONFIG
 // ==========================================
