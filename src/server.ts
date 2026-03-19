@@ -147,18 +147,46 @@ io.on('connection', (socket) => {
 const registerSchema = z.object({ email: z.string().email(), password: z.string().min(6), org_id: z.string().uuid().optional() });
 fastify.post('/auth/register', async (request, reply) => {
   const { email, password, org_id } = registerSchema.parse(request.body);
+
+  // 🔥 STEP 1: Check if user already exists
+  const existingUser = await prisma.user.findUnique({
+    where: { email }
+  });
+
+  if (existingUser) {
+    return reply.status(400).send({
+      error: "Email already registered"
+    });
+  }
+
+  // 🔥 STEP 2: Hash password
   const password_hash = await bcrypt.hash(password, 10);
-  
-  // Default org creation logic if none provided
+
+  // 🔥 STEP 3: Create org if not provided
   let finalOrgId = org_id;
   if (!finalOrgId) {
-    const org = await prisma.organization.create({ data: { name: 'Personal Workspace' } });
+    const org = await prisma.organization.create({
+      data: { name: 'Personal Workspace' }
+    });
     finalOrgId = org.id;
   }
 
-  const user = await prisma.user.create({ data: { email, password_hash, org_id: finalOrgId } });
+  // 🔥 STEP 4: Create user
+  const user = await prisma.user.create({
+    data: {
+      email,
+      password_hash,
+      org_id: finalOrgId
+    }
+  });
+
+  // 🔥 STEP 5: Generate JWT
   const token = fastify.jwt.sign({ id: user.id });
-  return { token, user: { id: user.id, email: user.email } };
+
+  return {
+    token,
+    user: { id: user.id, email: user.email }
+  };
 });
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string() });
