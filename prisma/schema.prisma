@@ -235,6 +235,8 @@ model AuditLog {
   ip_address String?  @db.Inet
   created_at DateTime @default(now()) @db.Timestamptz(6)
 
+  User       User?    @relation(fields: [user_id], references: [id])
+
   @@map("audit_logs")
 }
 
