@@ -14,12 +14,15 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import cookie from '@fastify/cookie';
 
-
 declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
+
+// ==========================================
+// VALIDATE ENVIRONMENT VARIABLES FIRST
+// ==========================================
 const requiredEnvVars = ['DATABASE_URL'];
 const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
 
@@ -30,10 +33,20 @@ if (missingEnvVars.length > 0) {
 }
 
 // ==========================================
-// SAFE PRISMA INITIALIZATION
+// 1. INITIALIZATION & CONFIG
 // ==========================================
+const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 let prisma: PrismaClient | null = null;
 
+// Initialize Redis with error handling
+let pubClient: Redis;
+let subClient: Redis;
+let stateClient: Redis;
+let redisConnected = false;
+
+// ==========================================
+// 2. SAFE PRISMA INITIALIZATION
+// ==========================================
 const initializePrisma = async (): Promise<boolean> => {
   try {
     prisma = new PrismaClient();
@@ -48,54 +61,9 @@ const initializePrisma = async (): Promise<boolean> => {
   }
 };
 
-// ... rest of your code
-
-// Update the start function:
-const start = async () => {
-  try {
-    // 1. Initialize database first
-    logger.info('Initializing database...');
-    const dbConnected = await initializePrisma();
-    
-    if (!dbConnected) {
-      logger.error('❌ Failed to connect to database. Exiting...');
-      process.exit(1);
-    }
-
-    // 2. Initialize Redis (non-blocking)
-    logger.info('Initializing Redis connection...');
-    await initializeRedis();
-
-    if (redisConnected) {
-      logger.info('✅ Redis connection established');
-    } else {
-      logger.warn('⚠️  Redis not available - operating in memory mode');
-    }
-
-    // 3. Initialize Socket.IO after Redis
-    initializeSocketIO();
-
-    // 4. Start Fastify server
-    const port = parseInt(process.env.PORT || '8080', 10);
-    await fastify.listen({ port, host: '0.0.0.0' });
-    logger.info(`🚀 Server running on http://0.0.0.0:${port}`);
-  } catch (err) {
-    logger.error('Fatal error during startup:', err);
-    process.exit(1);
-  }
-};
 // ==========================================
-// 1. INITIALIZATION & CONFIG
+// 3. REDIS INITIALIZATION
 // ==========================================
-const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
-const prisma = new PrismaClient();
-
-// Initialize Redis with error handling
-let pubClient: Redis;
-let subClient: Redis;
-let stateClient: Redis;
-let redisConnected = false;
-
 const initializeRedis = async (): Promise<boolean> => {
   try {
     const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -156,15 +124,15 @@ const initializeRedis = async (): Promise<boolean> => {
   }
 };
 
+// ==========================================
+// 4. FASTIFY SERVER SETUP
+// ==========================================
 const fastify = Fastify({ logger: false });
 
 fastify.register(cookie, {
   secret: 'some-secret',
 });
 
-// ==========================================
-// 2. MIDDLEWARES & PLUGINS
-// ==========================================
 fastify.register(cors, {
   origin: process.env.CORS_ORIGIN || "https://nexusmeet-1--nikunja512.replit.app",
   credentials: true
@@ -184,7 +152,7 @@ fastify.decorate('authenticate', async (request: FastifyRequest, reply: FastifyR
 });
 
 // ==========================================
-// 3. WEBSOCKET & WEBRTC SIGNALING (SOCKET.IO)
+// 5. WEBSOCKET & WEBRTC SIGNALING (SOCKET.IO)
 // ==========================================
 let io: SocketIOServer;
 
@@ -225,7 +193,7 @@ const initializeSocketIO = () => {
 
     socket.on('join-meeting', async ({ joinToken, micState, camState }) => {
       try {
-        const meeting = await prisma.meeting.findUnique({ where: { join_token: joinToken } });
+        const meeting = await prisma!.meeting.findUnique({ where: { join_token: joinToken } });
         if (!meeting || meeting.status === 'ended') throw new Error('Meeting unavailable');
 
         const roomId = meeting.id;
@@ -233,7 +201,7 @@ const initializeSocketIO = () => {
         socket.data.roomId = roomId;
 
         // Track participant in Postgres
-        const participant = await prisma.meetingParticipant.create({
+        const participant = await prisma!.meetingParticipant.create({
           data: { meeting_id: roomId, user_id: socket.data.userId, mic_state: micState, cam_state: camState }
         });
 
@@ -272,7 +240,7 @@ const initializeSocketIO = () => {
       if (!roomId) return;
 
       try {
-        const message = await prisma.chatMessage.create({
+        const message = await prisma!.chatMessage.create({
           data: { meeting_id: roomId, sender_id: socket.data.userId, content }
         });
 
@@ -296,7 +264,7 @@ const initializeSocketIO = () => {
 
         // Update DB leaving time
         try {
-          await prisma.meetingParticipant.updateMany({
+          await prisma!.meetingParticipant.updateMany({
             where: { meeting_id: roomId, user_id: socket.data.userId, leave_time: null },
             data: { leave_time: new Date() }
           });
@@ -310,7 +278,7 @@ const initializeSocketIO = () => {
 };
 
 // ==========================================
-// 4. REST API ROUTES (CONTROLLERS)
+// 6. REST API ROUTES (CONTROLLERS)
 // ==========================================
 
 // --- Auth Routes ---
@@ -324,7 +292,7 @@ fastify.post('/auth/register', async (request, reply) => {
   try {
     const { email, password, org_id } = registerSchema.parse(request.body);
 
-    const existingUser = await prisma.user.findUnique({
+    const existingUser = await prisma!.user.findUnique({
       where: { email }
     });
 
@@ -336,13 +304,13 @@ fastify.post('/auth/register', async (request, reply) => {
 
     let finalOrgId = org_id;
     if (!finalOrgId) {
-      const org = await prisma.organization.create({
+      const org = await prisma!.organization.create({
         data: { name: 'Personal Workspace' }
       });
       finalOrgId = org.id;
     }
 
-    const user = await prisma.user.create({
+    const user = await prisma!.user.create({
       data: {
         email,
         password_hash,
@@ -377,7 +345,7 @@ fastify.post('/auth/login', async (request, reply) => {
   try {
     const { email, password } = loginSchema.parse(request.body);
 
-    const user = await prisma.user.findUnique({
+    const user = await prisma!.user.findUnique({
       where: { email }
     });
 
@@ -416,10 +384,10 @@ fastify.post('/meetings', { preValidation: [fastify.authenticate] }, async (requ
     const user = request.user as { id: string };
     const data = createMeetingSchema.parse(request.body);
 
-    const host = await prisma.user.findUnique({ where: { id: user.id } });
+    const host = await prisma!.user.findUnique({ where: { id: user.id } });
     if (!host || !host.org_id) return reply.code(400).send({ error: 'User must belong to an organization' });
 
-    const meeting = await prisma.meeting.create({
+    const meeting = await prisma!.meeting.create({
       data: { ...data, host_id: user.id, org_id: host.org_id, start_time: new Date(data.start_time) }
     });
     return meeting;
@@ -434,11 +402,11 @@ fastify.post('/meetings/:id/end', { preValidation: [fastify.authenticate] }, asy
     const user = request.user as { id: string };
     const { id } = request.params as { id: string };
 
-    const meeting = await prisma.meeting.findUnique({ where: { id } });
+    const meeting = await prisma!.meeting.findUnique({ where: { id } });
     if (!meeting) return reply.code(404).send({ error: 'Meeting not found' });
     if (meeting.host_id !== user.id) return reply.code(403).send({ error: 'Only host can end meeting' });
 
-    const updated = await prisma.meeting.update({
+    const updated = await prisma!.meeting.update({
       where: { id },
       data: { status: 'ended', end_time: new Date() }
     });
@@ -469,24 +437,33 @@ fastify.setErrorHandler((error, request, reply) => {
 });
 
 // ==========================================
-// 5. BOOTSTRAP
+// 7. BOOTSTRAP
 // ==========================================
 const start = async () => {
   try {
-    // Initialize Redis (non-blocking - continues even if Redis fails)
+    // 1. Initialize database first
+    logger.info('Initializing database...');
+    const dbConnected = await initializePrisma();
+    
+    if (!dbConnected) {
+      logger.error('❌ Failed to connect to database. Exiting...');
+      process.exit(1);
+    }
+
+    // 2. Initialize Redis (non-blocking)
     logger.info('Initializing Redis connection...');
     await initializeRedis();
 
     if (redisConnected) {
-      logger.info('Redis connection established');
+      logger.info('✅ Redis connection established');
     } else {
-      logger.warn('Redis not available - Socket.IO will operate without Redis adapter');
+      logger.warn('⚠️  Redis not available - operating in memory mode');
     }
 
-    // Initialize Socket.IO after Redis setup
+    // 3. Initialize Socket.IO after Redis
     initializeSocketIO();
 
-    // Start Fastify server
+    // 4. Start Fastify server
     const port = parseInt(process.env.PORT || '8080', 10);
     await fastify.listen({ port, host: '0.0.0.0' });
     logger.info(`🚀 Server running on http://0.0.0.0:${port}`);
@@ -501,7 +478,7 @@ const shutdown = async () => {
   logger.info('Shutting down gracefully...');
   try {
     await fastify.close();
-    await prisma.$disconnect();
+    if (prisma) await prisma.$disconnect();
     
     if (pubClient) pubClient.quit();
     if (subClient) subClient.quit();
