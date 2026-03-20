@@ -14,12 +14,76 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import cookie from '@fastify/cookie';
 
+
 declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
+const requiredEnvVars = ['DATABASE_URL'];
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
 
+if (missingEnvVars.length > 0) {
+  console.error(`❌ Missing required environment variables: ${missingEnvVars.join(', ')}`);
+  console.error('Exiting...');
+  process.exit(1);
+}
+
+// ==========================================
+// SAFE PRISMA INITIALIZATION
+// ==========================================
+let prisma: PrismaClient | null = null;
+
+const initializePrisma = async (): Promise<boolean> => {
+  try {
+    prisma = new PrismaClient();
+    
+    // Test connection
+    await prisma.$queryRaw`SELECT 1`;
+    logger.info('✅ Database connected successfully');
+    return true;
+  } catch (error) {
+    logger.error(`❌ Database connection failed: ${error}`);
+    return false;
+  }
+};
+
+// ... rest of your code
+
+// Update the start function:
+const start = async () => {
+  try {
+    // 1. Initialize database first
+    logger.info('Initializing database...');
+    const dbConnected = await initializePrisma();
+    
+    if (!dbConnected) {
+      logger.error('❌ Failed to connect to database. Exiting...');
+      process.exit(1);
+    }
+
+    // 2. Initialize Redis (non-blocking)
+    logger.info('Initializing Redis connection...');
+    await initializeRedis();
+
+    if (redisConnected) {
+      logger.info('✅ Redis connection established');
+    } else {
+      logger.warn('⚠️  Redis not available - operating in memory mode');
+    }
+
+    // 3. Initialize Socket.IO after Redis
+    initializeSocketIO();
+
+    // 4. Start Fastify server
+    const port = parseInt(process.env.PORT || '8080', 10);
+    await fastify.listen({ port, host: '0.0.0.0' });
+    logger.info(`🚀 Server running on http://0.0.0.0:${port}`);
+  } catch (err) {
+    logger.error('Fatal error during startup:', err);
+    process.exit(1);
+  }
+};
 // ==========================================
 // 1. INITIALIZATION & CONFIG
 // ==========================================
