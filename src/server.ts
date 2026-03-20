@@ -61,15 +61,16 @@ fastify.decorate('authenticate', async (request: FastifyRequest, reply: FastifyR
 // We attach socket.io to the raw Node HTTP server inside Fastify
 const io = new SocketIOServer(fastify.server, {
   cors: {
- origin: (origin, cb) => {
-  if (!origin || origin.includes("replit.app")) {
-    cb(null, true);
-  } else {
-    cb(new Error("Not allowed"), false);
-  }
-},
-credentials: true
-  adapter: createAdapter(pubClient, subClient) // Critical for multi-instance scaling on App Runner
+    origin: (origin, cb) => {
+      if (!origin || origin.includes("replit.app")) {
+        cb(null, true);
+      } else {
+        cb(new Error("Not allowed"), false);
+      }
+    },
+    credentials: true
+  },
+  adapter: createAdapter(pubClient, subClient)
 });
 
 io.use(async (socket, next) => {
