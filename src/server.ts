@@ -19,27 +19,42 @@ declare module 'fastify' {
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
+
 // ==========================================
 // 1. INITIALIZATION & CONFIG
 // ==========================================
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
+logger.info("🟢 BREADCRUMB 1: Pino Logger Initialized");
+
 const prisma = new PrismaClient();
+logger.info("🟢 BREADCRUMB 2: Prisma Client Initialized");
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const pubClient = new Redis(REDIS_URL);
+logger.info(`🟢 BREADCRUMB 3: Redis URL set to: ${REDIS_URL}`);
+
+// Configure Redis clients with a connection timeout to prevent infinite hanging
+const redisConfig = {
+  maxRetriesPerRequest: 3,
+  connectTimeout: 5000, // Fail after 5 seconds if can't connect
+};
+
+const pubClient = new Redis(REDIS_URL, redisConfig);
 const subClient = pubClient.duplicate();
 const stateClient = pubClient.duplicate(); // For pure state K/V operations
+logger.info("🟢 BREADCRUMB 4: Redis Clients created");
 
 const fastify = Fastify({ logger: false }); // Using custom pino instance manually where needed
+logger.info("🟢 BREADCRUMB 5: Fastify Instance created");
 
 fastify.register(cookie, {
-  secret: 'some-secret', // optional
+  secret: process.env.JWT_SECRET || 'some-secret',
 });
+
 // ==========================================
 // 2. MIDDLEWARES & PLUGINS
 // ==========================================
 fastify.register(cors, {
-  origin: "https://nexusmeet-1--nikunja512.replit.app",// NOT *
+  origin: "https://nexusmeet-1--nikunja512.replit.app",
   credentials: true
 });
 fastify.register(helmet);
@@ -54,11 +69,11 @@ fastify.decorate('authenticate', async (request: FastifyRequest, reply: FastifyR
     reply.code(401).send({ error: 'Unauthorized' });
   }
 });
+logger.info("🟢 BREADCRUMB 6: Fastify Middlewares registered");
 
 // ==========================================
 // 3. WEBSOCKET & WEBRTC SIGNALING (SOCKET.IO)
 // ==========================================
-// We attach socket.io to the raw Node HTTP server inside Fastify
 const io = new SocketIOServer(fastify.server, {
   cors: {
     origin: (origin, cb) => {
@@ -72,6 +87,7 @@ const io = new SocketIOServer(fastify.server, {
   },
   adapter: createAdapter(pubClient, subClient)
 });
+logger.info("🟢 BREADCRUMB 7: Socket.io Server configured");
 
 io.use(async (socket, next) => {
   try {
@@ -93,7 +109,7 @@ io.use(async (socket, next) => {
     const decoded = fastify.jwt.verify<{ id: string }>(token);
     socket.data.userId = decoded.id;
 
-    next(); // ✅ VERY IMPORTANT
+    next();
   } catch (err) {
     next(new Error("Authentication error"));
   }
@@ -127,7 +143,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // WebRTC Signaling: Forwarding offers, answers, and ICE candidates
   socket.on('webrtc-offer', ({ targetSocketId, offer }) => {
     socket.to(targetSocketId).emit('webrtc-offer', { senderSocketId: socket.id, offer });
   });
@@ -140,7 +155,6 @@ io.on('connection', (socket) => {
     socket.to(targetSocketId).emit('webrtc-ice-candidate', { senderSocketId: socket.id, candidate });
   });
 
-  // Chat implementation
   socket.on('send-message', async ({ content }) => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
@@ -158,7 +172,6 @@ io.on('connection', (socket) => {
       await stateClient.srem(`meeting:${roomId}:participants`, socket.data.userId);
       socket.to(roomId).emit('user-left', { userId: socket.data.userId, socketId: socket.id });
       
-      // Update DB leaving time
       await prisma.meetingParticipant.updateMany({
         where: { meeting_id: roomId, user_id: socket.data.userId, leave_time: null },
         data: { leave_time: new Date() }
@@ -167,12 +180,12 @@ io.on('connection', (socket) => {
     logger.info(`Socket disconnected: ${socket.id}`);
   });
 });
+logger.info("🟢 BREADCRUMB 8: Socket.io event listeners attached");
 
 // ==========================================
 // 4. REST API ROUTES (CONTROLLERS)
 // ==========================================
 
-// --- Auth Routes ---
 const registerSchema = z.object({ email: z.string().email(), password: z.string().min(6), org_id: z.string().uuid().optional() });
 fastify.post('/auth/register', async (request, reply) => {
   const { email, password, org_id } = registerSchema.parse(request.body);
@@ -217,7 +230,6 @@ fastify.post('/auth/register', async (request, reply) => {
     });
 });
 
-
 const loginSchema = z.object({ email: z.string().email(), password: z.string() });
 fastify.post('/auth/login', async (request, reply) => {
   const { email, password } = loginSchema.parse(request.body);
@@ -243,7 +255,7 @@ fastify.post('/auth/login', async (request, reply) => {
       user: { id: user.id, email: user.email }
     });
 });
-// --- Meeting Routes ---
+
 const createMeetingSchema = z.object({ title: z.string(), type: z.string(), start_time: z.string().datetime(), max_participants: z.number().optional() });
 fastify.post('/meetings', { preValidation: [fastify.authenticate] }, async (request, reply) => {
   const user = request.user as { id: string };
@@ -271,17 +283,18 @@ fastify.post('/meetings/:id/end', { preValidation: [fastify.authenticate] }, asy
     data: { status: 'ended', end_time: new Date() }
   });
 
-  // Kick everyone out via WebSockets
   io.to(id).emit('meeting-ended');
   io.in(id).disconnectSockets();
 
   return updated;
 });
 
-// Health check
-fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date() }));
+// Health check route explicitly mapped
+fastify.get('/health', async () => {
+  logger.info("🟢 BREADCRUMB: Health check pinged!");
+  return { status: 'ok', timestamp: new Date() }
+});
 
-// Global error handler mapping Zod errors
 fastify.setErrorHandler((error, request, reply) => {
   if (error instanceof z.ZodError) {
     return reply.code(400).send({ error: 'Validation Error', details: error.errors });
@@ -289,19 +302,40 @@ fastify.setErrorHandler((error, request, reply) => {
   logger.error(error);
   reply.code(error.statusCode || 500).send({ error: error.message || 'Internal Server Error' });
 });
+logger.info("🟢 BREADCRUMB 9: API Routes attached");
 
 // ==========================================
 // 5. BOOTSTRAP
 // ==========================================
 const start = async () => {
+  logger.info("🟢 BREADCRUMB 10: Entering start() function");
+  
   try {
-    // AWS App Runner sets the PORT environment variable. Defaults to 8080.
+    // 1. Check Database
+    logger.info("🟡 BREADCRUMB 11: Attempting to connect to Prisma DB...");
+    // A simple query to force a connection check
+    await prisma.$queryRaw`SELECT 1`; 
+    logger.info("✅ BREADCRUMB 12: Prisma DB connected successfully.");
+
+    // 2. Check Redis
+    logger.info("🟡 BREADCRUMB 13: Attempting to connect to Redis (Pub)...");
+    await pubClient.ping();
+    logger.info("✅ BREADCRUMB 14: Redis Pub connected.");
+    
+    logger.info("🟡 BREADCRUMB 15: Attempting to connect to Redis (State)...");
+    await stateClient.ping();
+    logger.info("✅ BREADCRUMB 16: Redis State connected.");
+
+    // 3. Start Server
     const port = parseInt(process.env.PORT || '8080', 10);
-    // Bind to '0.0.0.0' for Docker/App Runner container networking
+    logger.info(`🟡 BREADCRUMB 17: Attempting to bind fastify to port ${port}...`);
+    
     await fastify.listen({ port, host: '0.0.0.0' });
-    logger.info(`🚀 Server running on http://0.0.0.0:${port}`);
+    logger.info(`🚀 SERVER FULLY STARTED: Running on http://0.0.0.0:${port}`);
+    
   } catch (err) {
-    fastify.log.error(err);
+    logger.error("❌ CRITICAL STARTUP ERROR DETECTED ❌");
+    logger.error(err);
     process.exit(1);
   }
 };
@@ -320,4 +354,5 @@ const shutdown = async () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
+// Trigger the start sequence
 start();
