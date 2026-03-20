@@ -39,7 +39,7 @@ fastify.register(cookie, {
 // 2. MIDDLEWARES & PLUGINS
 // ==========================================
 fastify.register(cors, {
-  origin: "https://meeting-hub--nikunjagarwal9.replit.app/dashboard", // NOT *
+  origin: "https://nexusmeet-1--mohakagarwal302.replit.app", // NOT *
   credentials: true
 });
 fastify.register(helmet);
